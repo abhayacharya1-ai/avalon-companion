@@ -1,0 +1,1 @@
+const nextConfig = {};\nexport default nextConfig;\n
