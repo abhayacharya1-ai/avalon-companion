@@ -221,7 +221,7 @@ export default function Home(){
       }
     };
     voiceRef.current=rec;moderatorOnRef.current=true;setModeratorOn(true);
-    setVoiceNotice("Listening for a team nomination. Speech recognition may send audio to your browser provider. Avalon does not store recordings.");
+    setVoiceNotice("Listening for a team nomination. Speech recognition may send audio to your browser provider. If AI is enabled, short transcripts are sent to Google Gemini for interpretation. Ask everyone at the table for consent. Avalon does not store recordings.");
     try{rec.start();}catch{stopModerator();setVoiceNotice("Could not start microphone. Select the team manually.");}
   }
   useEffect(()=>{
