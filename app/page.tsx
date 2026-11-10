@@ -238,7 +238,7 @@ export default function Home(){
         <div className="row" style={{marginTop:7}}><input className="input" value={name} onChange={e=>setName(e.target.value)} placeholder="Say or type your name"/><button className={"mic "+(listening?"listening":"")} onClick={listen} aria-label="Speak your name"><Mic size={21}/></button></div>
         <div className="small muted" style={{margin:"7px 0 18px"}}>Voice recognition turns speech into editable text. No voiceprint or audio recording is stored.</div>
         <button className="btn" style={{width:"100%"}} disabled={busy||!isConfigured} onClick={createGame}><Plus size={17} style={{verticalAlign:"middle",marginRight:7}}/>Create a room</button>
-        <div className="divider"/>
+        <div className="divider"/><a className="btn secondary" style={{display:"block",textAlign:"center",marginBottom:16}} href="/demo">Try solo demo (no room needed)</a>
         <div className="row"><input className="input" value={room} onChange={e=>setRoom(e.target.value.toUpperCase())} placeholder="Room code"/><input className="input" value={typedName} onChange={e=>setTypedName(e.target.value)} placeholder="Your name"/></div>
         <button className="btn secondary" style={{width:"100%",marginTop:9}} disabled={busy||!isConfigured} onClick={joinGame}>Join a room <ArrowRight size={16} style={{verticalAlign:"middle"}}/></button>
         {!isConfigured&&<div className="notice" style={{marginTop:18}}>Supabase environment variables are missing. Configure them before using multiplayer.</div>}
