@@ -46,6 +46,8 @@ export default function Home(){
   const gameRef=useRef<Game|null>(null);
   const detectedRef=useRef<string[]|null>(null);
   const recentSpeechRef=useRef("");
+  const aiRequestRef=useRef(0);
+  const aiTimerRef=useRef<ReturnType<typeof setTimeout>|null>(null);
 
   gameRef.current=game;
   detectedRef.current=detectedTeam;
@@ -160,8 +162,27 @@ export default function Home(){
       setVoiceNotice("Heard "+mentioned.length+" name(s); this quest needs "+required+". Select any missing names manually.");
     }
   }
+  async function interpretWithAI(transcript:string, current:Game){
+    const required=questTeamSizes(current.players.length)[current.quest-1];
+    if(!required||!moderatorOnRef.current)return;
+    const requestId=++aiRequestRef.current;
+    try{
+      const response=await fetch("/api/moderator",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({transcript,required,players:current.players.map(p=>({id:p.id,name:p.name}))})});
+      if(!response.ok)return;
+      const data=await response.json();
+      const ids=data.teamIds;
+      if(requestId!==aiRequestRef.current||!moderatorOnRef.current||gameRef.current?.phase!=="team")return;
+      if(Array.isArray(ids)&&ids.length===required&&ids.every((id:unknown)=>typeof id==="string"&&current.players.some(p=>p.id===id))){
+        detectedRef.current=ids;setDetectedTeam(ids);setTeamChoice(ids);
+        setVoiceNotice("AI suggested a team. Review or edit it before starting the vote.");
+      }
+    }catch{/* Keep the original local nomination parser as fallback. */}
+  }
   function stopModerator(){
     moderatorOnRef.current=false;
+    aiRequestRef.current++;
+    if(aiTimerRef.current)clearTimeout(aiTimerRef.current);
     setModeratorOn(false);
     voiceRef.current?.stop();
     voiceRef.current=null;
@@ -177,9 +198,16 @@ export default function Home(){
         const phrase=String(event.results[i][0].transcript||"").trim();
         setHeardText(phrase);
         const g=gameRef.current;
-        if(g?.phase==="team"&&!detectedRef.current){
+        if(g?.phase==="team"){
           recentSpeechRef.current=(recentSpeechRef.current+" "+phrase).slice(-600);
-          detectNomination(recentSpeechRef.current,g);
+          // AI gets a short rolling transcript so it can resolve corrections.
+          // The existing local parser remains the offline / quota fallback.
+          const snapshot=recentSpeechRef.current;
+          if(aiTimerRef.current)clearTimeout(aiTimerRef.current);
+          if(/\\b(send|sending|take|taking|pick|picking|choose|choosing|team|quest|nominate|nominating|go with|swap|replace|instead)\\b/i.test(snapshot)){
+            aiTimerRef.current=setTimeout(()=>interpretWithAI(snapshot,g),650);
+          }
+          if(!detectedRef.current)detectNomination(snapshot,g);
         }
       }
     };
@@ -193,7 +221,7 @@ export default function Home(){
       }
     };
     voiceRef.current=rec;moderatorOnRef.current=true;setModeratorOn(true);
-    setVoiceNotice("Listening for a team nomination. Speech recognition may send audio to your browser provider. Avalon does not store recordings.");
+    setVoiceNotice("Listening for a team nomination. Speech recognition may send audio to your browser provider. If AI is enabled, short transcripts are sent to Google Gemini for interpretation. Ask everyone at the table for consent. Avalon does not store recordings.");
     try{rec.start();}catch{stopModerator();setVoiceNotice("Could not start microphone. Select the team manually.");}
   }
   useEffect(()=>{
