@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Mic, Crown, Users, Vote, ScrollText, Plus, Copy, Check, Radio, ArrowRight, RotateCcw } from "lucide-react";
 import { questTeamSizes } from "@/lib/rules";
@@ -37,10 +37,24 @@ export default function Home(){
   const [historyOpen,setHistoryOpen] = useState(false);
   const [connected,setConnected] = useState(false);
   const [busy,setBusy] = useState(false);
+  const [moderatorOn,setModeratorOn] = useState(false);
+  const [heardText,setHeardText] = useState("");
+  const [detectedTeam,setDetectedTeam] = useState<string[]|null>(null);
+  const [voiceNotice,setVoiceNotice] = useState("");
+  const voiceRef=useRef<any>(null);
+  const moderatorOnRef=useRef(false);
+  const gameRef=useRef<Game|null>(null);
+  const detectedRef=useRef<string[]|null>(null);
+  const recentSpeechRef=useRef("");
+
+  gameRef.current=game;
+  detectedRef.current=detectedTeam;
 
   const sizes = useMemo(()=>game ? questTeamSizes(game.players.length) : [],[game]);
   const currentProposal = game?.proposals[game.proposals.length-1];
   const isHost = !!game && game.hostId===playerId;
+  const isLeader=!!game && game.players[game.leader]?.id===playerId;
+  const canConfirmTeam=isHost||isLeader;
   const isOnQuest = !!game?.team.includes(playerId);
   const myPlayer = game?.players.find(p=>p.id===playerId);
   const isConfigured = !!supabase;
@@ -65,6 +79,10 @@ export default function Home(){
     setQuestSubmitted(!!result.myQuestSubmitted);
     setConnected(true);
   }
+  useEffect(()=>{
+    const code=new URLSearchParams(window.location.search).get("room");
+    if(code)setRoom(code.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8));
+  },[]);
   useEffect(()=>{
     const token=localStorage.getItem("avalon-session-token");
     if(token)setSessionToken(token);
@@ -121,9 +139,70 @@ export default function Home(){
     if(!game)return;const required=sizes[game.quest-1]||2;
     setTeamChoice(old=>old.includes(id)?old.filter(x=>x!==id):old.length<required?[...old,id]:old);
   }
+  function detectNomination(transcript:string, current:Game){
+    const required=questTeamSizes(current.players.length)[current.quest-1];
+    if(!required)return;
+    const normalize=(v:string)=>v.toLocaleLowerCase().normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+    const words=" "+normalize(transcript)+" ";
+    const mentioned=current.players.filter(p=>words.includes(" "+normalize(p.name)+" "));
+    // Don't assume the first names mentioned in a conversation are the final team.
+    // Require nomination language, then offer an editable suggestion.
+    const intent=/\b(send|sending|take|taking|pick|picking|choose|choosing|team|quest|nominate|nominating|going|go with|swap|replace|instead)\b/i.test(transcript);
+    if(!intent)return;
+    if(mentioned.length===required){
+      const ids=mentioned.map(p=>p.id);
+      detectedRef.current=ids;
+      setDetectedTeam(ids);
+      setTeamChoice(ids);
+      setVoiceNotice("Possible team detected. Confirm or edit before starting the vote.");
+    }else if(mentioned.length>0){
+      setVoiceNotice("Heard "+mentioned.length+" name(s); this quest needs "+required+". Select any missing names manually.");
+    }
+  }
+  function stopModerator(){
+    moderatorOnRef.current=false;
+    setModeratorOn(false);
+    voiceRef.current?.stop();
+    voiceRef.current=null;
+  }
+  function startModerator(){
+    if(!SpeechRecognition){setVoiceNotice("Continuous speech recognition is unavailable in this browser. Use manual team selection.");return;}
+    if(!game||game.phase!=="team"||!canConfirmTeam)return;
+    const rec=new SpeechRecognition();
+    rec.lang="en-US";rec.continuous=true;rec.interimResults=false;rec.maxAlternatives=1;
+    rec.onresult=(event:any)=>{
+      for(let i=event.resultIndex;i<event.results.length;i++){
+        if(!event.results[i].isFinal)continue;
+        const phrase=String(event.results[i][0].transcript||"").trim();
+        setHeardText(phrase);
+        const g=gameRef.current;
+        if(g?.phase==="team"&&!detectedRef.current){
+          recentSpeechRef.current=(recentSpeechRef.current+" "+phrase).slice(-600);
+          detectNomination(recentSpeechRef.current,g);
+        }
+      }
+    };
+    rec.onerror=(event:any)=>{
+      if(event.error==="not-allowed"||event.error==="service-not-allowed"){stopModerator();setVoiceNotice("Microphone permission denied. Enable microphone access or select manually.");}
+      else setVoiceNotice("Speech recognition interrupted. You can still select the team manually.");
+    };
+    rec.onend=()=>{
+      if(moderatorOnRef.current&&gameRef.current?.phase==="team"){
+        try{rec.start();}catch{stopModerator();}
+      }
+    };
+    voiceRef.current=rec;moderatorOnRef.current=true;setModeratorOn(true);
+    setVoiceNotice("Listening for a team nomination. Speech recognition may send audio to your browser provider. Avalon does not store recordings.");
+    try{rec.start();}catch{stopModerator();setVoiceNotice("Could not start microphone. Select the team manually.");}
+  }
+  useEffect(()=>{
+    if(game?.phase!=="team"&&moderatorOnRef.current)stopModerator();
+  },[game?.phase]);
+  useEffect(()=>()=>{moderatorOnRef.current=false;voiceRef.current?.stop();},[]);
   async function propose(){
     if(!game||teamChoice.length!==(sizes[game.quest-1]||2))return;
-    try{const state=await callRpc("avalon_propose_team",{p_session_token:sessionToken,p_player_ids:teamChoice}) as Game;setGame(state);setTeamChoice([]);setMyVoteSubmitted(false);}
+    try{const state=await callRpc("avalon_propose_team",{p_session_token:sessionToken,p_player_ids:teamChoice}) as Game;setGame(state);setTeamChoice([]);setDetectedTeam(null);detectedRef.current=null;recentSpeechRef.current="";stopModerator();setMyVoteSubmitted(false);}
     catch(e:any){setMessage(e.message||"Could not propose team.");}
   }
   async function castTeamVote(choice:"approve"|"reject"){
@@ -144,7 +223,7 @@ export default function Home(){
     }catch(e:any){setMessage(e.message||"Could not submit quest card.");}
   }
   function resetLocal(){
-    setGame(null);setMessage("");setName("");setTypedName("");setRoom("");setPlayerId("");setSessionToken("");setTeamChoice([]);setMyVoteSubmitted(false);setQuestSubmitted(false);
+    stopModerator();setDetectedTeam(null);detectedRef.current=null;setGame(null);setMessage("");setName("");setTypedName("");setRoom("");setPlayerId("");setSessionToken("");setTeamChoice([]);setMyVoteSubmitted(false);setQuestSubmitted(false);
     localStorage.removeItem("avalon-session-token");
   }
   const displayVotes=currentProposal?.votes??[];
@@ -166,7 +245,7 @@ export default function Home(){
         {message&&<p className="small" style={{color:"var(--gold)"}}>{message}</p>}
       </div>
     </section> : <div>
-      <div className="row between" style={{marginBottom:18,flexWrap:"wrap"}}><div><div className="eyebrow">Room code</div><div className="big">{game.code}</div></div><button className="btn secondary" onClick={()=>navigator.clipboard?.writeText(game.code)}><Copy size={15} style={{verticalAlign:"middle",marginRight:6}}/>Copy code</button></div>
+      <div className="row between" style={{marginBottom:18,flexWrap:"wrap"}}><div><div className="eyebrow">Room code</div><div className="big">{game.code}</div></div><button className="btn secondary" onClick={()=>navigator.clipboard?.writeText(game.code)}><Copy size={15} style={{verticalAlign:"middle",marginRight:6}}/>Copy code</button><button className="btn secondary" onClick={()=>navigator.clipboard?.writeText(window.location.origin+"/?room="+encodeURIComponent(game.code))}>Copy join link</button></div>
       <div className="grid">
         <section className="card">
           <div className="row between"><h2 className="section-title">Game table</h2><span className="tag">{game.players.length} players</span></div>
@@ -174,8 +253,21 @@ export default function Home(){
           <div className="divider"/>
           <div className="row between"><div><div className="eyebrow">Current phase</div><h2 className="section-title" style={{marginTop:5}}>{game.phase==="lobby"?"Waiting room":game.phase==="team"?"Team nomination":game.phase==="approval"?"Team approval":game.phase==="quest"?"Quest cards":"Game complete"}</h2></div><span className="status">Quest {Math.min(game.quest,5)} / 5</span></div>
           <div className="notice">{game.phase==="lobby"?"Players join from their own phones using this room code.":game.phase==="team"?"The leader selects "+(sizes[game.quest-1]||0)+" players for this quest.":game.phase==="approval"?"Everyone votes. Individual choices reveal only after all votes are in.":game.phase==="quest"?"Only the approved team can submit. Individual card choices are never displayed.":"The game has ended. Review the history below."}</div>
-          {game.phase==="lobby"&&<div style={{marginTop:18}}><p className="small muted">Share the room code with the other players. Each person joins on their own device. The room creator can start once 5–10 players have joined.</p>{isHost&&<button className="btn" style={{width:"100%",marginTop:8}} disabled={busy||game.players.length<5} onClick={startGame}>Start game</button>}</div>}
-          {game.phase==="team"&&<div style={{marginTop:18}}><div className="row between"><h3 className="section-title">Select the quest team</h3><span className="tag">{teamChoice.length}/{sizes[game.quest-1]} selected</span></div><div>{game.players.map(p=><div className="player-row" key={p.id}><span>{p.name}{p.id===game.players[game.leader].id?" · Leader":""}</span><button className={"btn "+(teamChoice.includes(p.id)?"":"secondary")} onClick={()=>toggleTeam(p.id)}>{teamChoice.includes(p.id)?"Selected":"Select"}</button></div>)}</div><button className="btn" style={{width:"100%",marginTop:14}} disabled={busy||teamChoice.length!==sizes[game.quest-1]||game.players[game.leader]?.id!==playerId} onClick={propose}>Propose team</button></div>}
+          {game.phase==="lobby"&&<div style={{marginTop:18}}><p className="small muted">Share the join link or room code with the other players. Each person joins on their own device. The room creator can start once 5–10 players have joined.</p>{isHost&&<button className="btn" style={{width:"100%",marginTop:8}} disabled={busy||game.players.length<5} onClick={startGame}>Start game</button>}</div>}
+          {game.phase==="team"&&<div style={{marginTop:18}}>
+            {canConfirmTeam&&<div className="notice" style={{marginBottom:14}}>
+              <div className="row between" style={{flexWrap:"wrap"}}><b>Voice team moderator</b><button className="btn secondary" onClick={moderatorOn?stopModerator:startModerator}>{moderatorOn?"Stop listening":"Start listening"}</button></div>
+              <p className="small muted">Optional: keep this phone awake and the page open. The microphone is active only while listening is enabled. Browser speech services may process audio remotely. Ask everyone at the table for consent.</p>
+              {heardText&&<p className="small">Last heard: “{heardText}”</p>}
+              {voiceNotice&&<p className="small">{voiceNotice}</p>}
+              {detectedTeam&&<div className="notice" style={{marginTop:10}}>
+                <b>Is this the nominated quest team?</b>
+                <p>{teamChoice.map(id=>game.players.find(p=>p.id===id)?.name).join(", ")||"Select players below"}</p>
+                <p className="small muted">Check the names below, edit any mistakes, then confirm. The AI never submits automatically.</p>
+                <button className="btn secondary" onClick={()=>{setDetectedTeam(null);detectedRef.current=null;recentSpeechRef.current="";setVoiceNotice("Suggestion dismissed. Listening for the next nomination.");}}>Dismiss suggestion</button>
+              </div>}
+            </div>}
+            <div className="row between"><h3 className="section-title">Select the quest team</h3><span className="tag">{teamChoice.length}/{sizes[game.quest-1]} selected</span></div><div>{game.players.map(p=><div className="player-row" key={p.id}><span>{p.name}{p.id===game.players[game.leader].id?" · Leader":""}</span><button className={"btn "+(teamChoice.includes(p.id)?"":"secondary")} onClick={()=>toggleTeam(p.id)}>{teamChoice.includes(p.id)?"Selected":"Select"}</button></div>)}</div><button className="btn" style={{width:"100%",marginTop:14}} disabled={busy||teamChoice.length!==sizes[game.quest-1]||!canConfirmTeam} onClick={propose}>{detectedTeam?"Confirm and propose team":"Propose team"}</button></div>}
           {game.phase==="approval"&&<div style={{marginTop:18}}><h3 className="section-title">Approve this team?</h3><div className="players">{game.team.map(id=><span className="pill" key={id}>{game.players.find(p=>p.id===id)?.name}</span>)}</div><div className="row between" style={{margin:"16px 0 8px"}}><b>Votes received</b><b>{voteCount}/{game.players.length}</b></div><div className="actions"><button className="vote approve" disabled={busy||myVoteSubmitted} onClick={()=>castTeamVote("approve")}>{myVoteSubmitted?"✓ Submitted":"Approve"}</button><button className="vote reject" disabled={busy||myVoteSubmitted} onClick={()=>castTeamVote("reject")}>{myVoteSubmitted?"✓ Submitted":"Reject"}</button></div><p className="small muted">Individual votes are hidden until everyone has voted. You cannot change your vote after submission.</p>{game.votesRevealed&&<div className="notice">{displayVotes.filter(v=>v.choice==="approve").length} approve · {displayVotes.filter(v=>v.choice==="reject").length} reject. {currentProposal?.result==="approved"?"Team approved.":"Team rejected."}<div className="players" style={{marginTop:8}}>{displayVotes.map(v=><span className={"tag "+(v.choice==="approve"?"green":"red")} key={v.playerId}>{game.players.find(p=>p.id===v.playerId)?.name}: {v.choice}</span>)}</div></div>}</div>}
           {game.phase==="quest"&&<div style={{marginTop:18}}><h3 className="section-title">Quest voting</h3><p className="muted small">Authorized participants: {game.team.map(id=>game.players.find(p=>p.id===id)?.name).join(", ")}</p>{isOnQuest?<><div className="actions"><button className="vote success" disabled={busy||questSubmitted} onClick={()=>castQuestVote("success")}>{questSubmitted?"✓ Submitted":"SUCCESS"}</button><button className="vote fail" disabled={busy||questSubmitted} onClick={()=>castQuestVote("fail")}>{questSubmitted?"✓ Submitted":"FAIL"}</button></div><p className="small muted">Your card is private. Neither your choice nor a partial tally is visible to anyone.</p></>:<div className="notice">You are not on this quest. Waiting for the selected players to submit their cards.</div>}<div className="row between" style={{marginTop:14}}><span className="muted small">Cards submitted</span><b>{questCount}/{game.team.length}</b></div></div>}
           {game.phase==="finished"&&<div className="center" style={{padding:20}}><Crown size={38} color="var(--gold)"/><h2 className="section-title" style={{marginTop:10}}>Game complete</h2><button className="btn secondary" onClick={()=>setHistoryOpen(true)}>Review game history</button></div>}
