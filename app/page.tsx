@@ -164,7 +164,7 @@ export default function Home(){
   }
   async function interpretWithAI(transcript:string, current:Game){
     const required=questTeamSizes(current.players.length)[current.quest-1];
-    if(!required||!moderatorOnRef.current||detectedRef.current)return;
+    if(!required||!moderatorOnRef.current)return;
     const requestId=++aiRequestRef.current;
     try{
       const response=await fetch("/api/moderator",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -172,7 +172,7 @@ export default function Home(){
       if(!response.ok)return;
       const data=await response.json();
       const ids=data.teamIds;
-      if(requestId!==aiRequestRef.current||!moderatorOnRef.current||gameRef.current?.phase!=="team"||detectedRef.current)return;
+      if(requestId!==aiRequestRef.current||!moderatorOnRef.current||gameRef.current?.phase!=="team")return;
       if(Array.isArray(ids)&&ids.length===required&&ids.every((id:unknown)=>typeof id==="string"&&current.players.some(p=>p.id===id))){
         detectedRef.current=ids;setDetectedTeam(ids);setTeamChoice(ids);
         setVoiceNotice("AI suggested a team. Review or edit it before starting the vote.");
@@ -198,7 +198,7 @@ export default function Home(){
         const phrase=String(event.results[i][0].transcript||"").trim();
         setHeardText(phrase);
         const g=gameRef.current;
-        if(g?.phase==="team"&&!detectedRef.current){
+        if(g?.phase==="team"){
           recentSpeechRef.current=(recentSpeechRef.current+" "+phrase).slice(-600);
           // AI gets a short rolling transcript so it can resolve corrections.
           // The existing local parser remains the offline / quota fallback.
@@ -207,7 +207,7 @@ export default function Home(){
           if(/\\b(send|sending|take|taking|pick|picking|choose|choosing|team|quest|nominate|nominating|go with|swap|replace|instead)\\b/i.test(snapshot)){
             aiTimerRef.current=setTimeout(()=>interpretWithAI(snapshot,g),650);
           }
-          detectNomination(snapshot,g);
+          if(!detectedRef.current)detectNomination(snapshot,g);
         }
       }
     };
