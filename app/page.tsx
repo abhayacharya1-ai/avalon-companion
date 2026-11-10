@@ -53,7 +53,7 @@ export default function Home(){
   const currentProposal = game?.proposals[game.proposals.length-1];
   const isHost = !!game && game.hostId===playerId;
   const isLeader=!!game && game.players[game.leader]?.id===playerId;
-  const canConfirmTeam=isHost||isLeader;
+  const canConfirmTeam=isLeader;
   const isOnQuest = !!game?.team.includes(playerId);
   const myPlayer = game?.players.find(p=>p.id===playerId);
   const isConfigured = !!supabase;
@@ -137,7 +137,7 @@ export default function Home(){
   function detectNomination(transcript:string, current:Game){
     const text=transcript.toLocaleLowerCase();
     const matches=current.players.filter(p=>{
-      const escaped=p.name.toLocaleLowerCase().replace(/[.*+?^$\u007b\u007d()|[\]\\]/g,"\\  async function propose(){");
+      const escaped=p.name.toLocaleLowerCase().replace(/[^a-z0-9 ]/g,"").trim();
       return new RegExp("(^|[^\\p{L}\\p{N}])"+escaped+"(?=$|[^\\p{L}\\p{N}])","iu").test(text);
     }).map(p=>p.id);
     const required=questTeamSizes(current.players.length)[current.quest-1];
@@ -257,7 +257,7 @@ export default function Home(){
                 <button className="btn secondary" onClick={()=>{setDetectedTeam(null);recentSpeechRef.current="";setVoiceNotice("Suggestion dismissed. Listening for the next nomination.");}}>Dismiss suggestion</button>
               </div>}
             </div>}
-            <div className="row between"><h3 className="section-title">Select the quest team</h3><span className="tag">{teamChoice.length}/{sizes[game.quest-1]} selected</span></div><div>{game.players.map(p=><div className="player-row" key={p.id}><span>{p.name}{p.id===game.players[game.leader].id?" · Leader":""}</span><button className={"btn "+(teamChoice.includes(p.id)?"":"secondary")} onClick={()=>toggleTeam(p.id)}>{teamChoice.includes(p.id)?"Selected":"Select"}</button></div>)}</div><button className="btn" style={{width:"100%",marginTop:14}} disabled={busy||teamChoice.length!==sizes[game.quest-1]||!(isLeader||isHost)} onClick={propose}>{detectedTeam?"Confirm and propose team":"Propose team"</button></div>}
+            <div className="row between"><h3 className="section-title">Select the quest team</h3><span className="tag">{teamChoice.length}/{sizes[game.quest-1]} selected</span></div><div>{game.players.map(p=><div className="player-row" key={p.id}><span>{p.name}{p.id===game.players[game.leader].id?" · Leader":""}</span><button className={"btn "+(teamChoice.includes(p.id)?"":"secondary")} onClick={()=>toggleTeam(p.id)}>{teamChoice.includes(p.id)?"Selected":"Select"}</button></div>)}</div><button className="btn" style={{width:"100%",marginTop:14}} disabled={busy||teamChoice.length!==sizes[game.quest-1]||!isLeader} onClick={propose}>{detectedTeam?"Confirm and propose team":"Propose team"}</button></div>}
           {game.phase==="approval"&&<div style={{marginTop:18}}><h3 className="section-title">Approve this team?</h3><div className="players">{game.team.map(id=><span className="pill" key={id}>{game.players.find(p=>p.id===id)?.name}</span>)}</div><div className="row between" style={{margin:"16px 0 8px"}}><b>Votes received</b><b>{voteCount}/{game.players.length}</b></div><div className="actions"><button className="vote approve" disabled={busy||myVoteSubmitted} onClick={()=>castTeamVote("approve")}>{myVoteSubmitted?"✓ Submitted":"Approve"}</button><button className="vote reject" disabled={busy||myVoteSubmitted} onClick={()=>castTeamVote("reject")}>{myVoteSubmitted?"✓ Submitted":"Reject"}</button></div><p className="small muted">Individual votes are hidden until everyone has voted. You cannot change your vote after submission.</p>{game.votesRevealed&&<div className="notice">{displayVotes.filter(v=>v.choice==="approve").length} approve · {displayVotes.filter(v=>v.choice==="reject").length} reject. {currentProposal?.result==="approved"?"Team approved.":"Team rejected."}<div className="players" style={{marginTop:8}}>{displayVotes.map(v=><span className={"tag "+(v.choice==="approve"?"green":"red")} key={v.playerId}>{game.players.find(p=>p.id===v.playerId)?.name}: {v.choice}</span>)}</div></div>}</div>}
           {game.phase==="quest"&&<div style={{marginTop:18}}><h3 className="section-title">Quest voting</h3><p className="muted small">Authorized participants: {game.team.map(id=>game.players.find(p=>p.id===id)?.name).join(", ")}</p>{isOnQuest?<><div className="actions"><button className="vote success" disabled={busy||questSubmitted} onClick={()=>castQuestVote("success")}>{questSubmitted?"✓ Submitted":"SUCCESS"}</button><button className="vote fail" disabled={busy||questSubmitted} onClick={()=>castQuestVote("fail")}>{questSubmitted?"✓ Submitted":"FAIL"}</button></div><p className="small muted">Your card is private. Neither your choice nor a partial tally is visible to anyone.</p></>:<div className="notice">You are not on this quest. Waiting for the selected players to submit their cards.</div>}<div className="row between" style={{marginTop:14}}><span className="muted small">Cards submitted</span><b>{questCount}/{game.team.length}</b></div></div>}
           {game.phase==="finished"&&<div className="center" style={{padding:20}}><Crown size={38} color="var(--gold)"/><h2 className="section-title" style={{marginTop:10}}>Game complete</h2><button className="btn secondary" onClick={()=>setHistoryOpen(true)}>Review game history</button></div>}
