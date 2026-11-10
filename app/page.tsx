@@ -80,6 +80,10 @@ export default function Home(){
     setConnected(true);
   }
   useEffect(()=>{
+    const code=new URLSearchParams(window.location.search).get("room");
+    if(code)setRoom(code.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,8));
+  },[]);
+  useEffect(()=>{
     const token=localStorage.getItem("avalon-session-token");
     if(token)setSessionToken(token);
   },[]);
@@ -241,7 +245,7 @@ export default function Home(){
         {message&&<p className="small" style={{color:"var(--gold)"}}>{message}</p>}
       </div>
     </section> : <div>
-      <div className="row between" style={{marginBottom:18,flexWrap:"wrap"}}><div><div className="eyebrow">Room code</div><div className="big">{game.code}</div></div><button className="btn secondary" onClick={()=>navigator.clipboard?.writeText(game.code)}><Copy size={15} style={{verticalAlign:"middle",marginRight:6}}/>Copy code</button></div>
+      <div className="row between" style={{marginBottom:18,flexWrap:"wrap"}}><div><div className="eyebrow">Room code</div><div className="big">{game.code}</div></div><button className="btn secondary" onClick={()=>navigator.clipboard?.writeText(game.code)}><Copy size={15} style={{verticalAlign:"middle",marginRight:6}}/>Copy code</button><button className="btn secondary" onClick={()=>navigator.clipboard?.writeText(window.location.origin+"/?room="+encodeURIComponent(game.code))}>Copy join link</button></div>
       <div className="grid">
         <section className="card">
           <div className="row between"><h2 className="section-title">Game table</h2><span className="tag">{game.players.length} players</span></div>
@@ -249,7 +253,7 @@ export default function Home(){
           <div className="divider"/>
           <div className="row between"><div><div className="eyebrow">Current phase</div><h2 className="section-title" style={{marginTop:5}}>{game.phase==="lobby"?"Waiting room":game.phase==="team"?"Team nomination":game.phase==="approval"?"Team approval":game.phase==="quest"?"Quest cards":"Game complete"}</h2></div><span className="status">Quest {Math.min(game.quest,5)} / 5</span></div>
           <div className="notice">{game.phase==="lobby"?"Players join from their own phones using this room code.":game.phase==="team"?"The leader selects "+(sizes[game.quest-1]||0)+" players for this quest.":game.phase==="approval"?"Everyone votes. Individual choices reveal only after all votes are in.":game.phase==="quest"?"Only the approved team can submit. Individual card choices are never displayed.":"The game has ended. Review the history below."}</div>
-          {game.phase==="lobby"&&<div style={{marginTop:18}}><p className="small muted">Share the room code with the other players. Each person joins on their own device. The room creator can start once 5–10 players have joined.</p>{isHost&&<button className="btn" style={{width:"100%",marginTop:8}} disabled={busy||game.players.length<5} onClick={startGame}>Start game</button>}</div>}
+          {game.phase==="lobby"&&<div style={{marginTop:18}}><p className="small muted">Share the join link or room code with the other players. Each person joins on their own device. The room creator can start once 5–10 players have joined.</p>{isHost&&<button className="btn" style={{width:"100%",marginTop:8}} disabled={busy||game.players.length<5} onClick={startGame}>Start game</button>}</div>}
           {game.phase==="team"&&<div style={{marginTop:18}}>
             {canConfirmTeam&&<div className="notice" style={{marginBottom:14}}>
               <div className="row between" style={{flexWrap:"wrap"}}><b>Voice team moderator</b><button className="btn secondary" onClick={moderatorOn?stopModerator:startModerator}>{moderatorOn?"Stop listening":"Start listening"}</button></div>
