@@ -3,8 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 const model = "gemini-2.5-flash-lite";
 const MAX_TRANSCRIPT = 900;
+const recentCalls = new Map<string, { count: number; reset: number }>();
 
 export async function POST(request: NextRequest) {
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const now = Date.now();
+  const prior = recentCalls.get(ip);
+  const entry = prior && prior.reset > now ? prior : { count: 0, reset: now + 60000 };
+  if (++entry.count > 12) return NextResponse.json({ error: "Rate limit reached" }, { status: 429 });
+  recentCalls.set(ip, entry);
+  if (recentCalls.size > 2000) for (const [k,v] of recentCalls) if (v.reset <= now) recentCalls.delete(k);
   const key = process.env.GEMINI_API_KEY;
   if (!key) return NextResponse.json({ error: "AI moderator not configured" }, { status: 503 });
   let body: unknown;
