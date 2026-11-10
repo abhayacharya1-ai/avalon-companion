@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     const ids = parsed?.teamIds;
     if (!Array.isArray(ids) || !ids.every((id:unknown)=>typeof id==="string")) throw new Error("Invalid response");
     const allowed = new Set(roster.map(p=>p.id));
-    const unique = [...new Set(ids)];
+    const unique: string[] = Array.from(new Set<string>(ids as string[]));
     const valid = unique.length === required && unique.every(id=>allowed.has(id));
     return NextResponse.json({ teamIds: valid ? unique : [], source: "gemini" });
   } catch {
