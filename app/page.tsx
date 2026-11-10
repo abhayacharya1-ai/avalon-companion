@@ -143,12 +143,12 @@ export default function Home(){
     const required=questTeamSizes(current.players.length)[current.quest-1];
     if(!required)return;
     const normalize=(v:string)=>v.toLocaleLowerCase().normalize("NFKD")
-      .replace(/[\\u0300-\\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\\s+/g," ").trim();
+      .replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
     const words=" "+normalize(transcript)+" ";
     const mentioned=current.players.filter(p=>words.includes(" "+normalize(p.name)+" "));
     // Don't assume the first names mentioned in a conversation are the final team.
     // Require nomination language, then offer an editable suggestion.
-    const intent=/\\b(send|sending|take|taking|pick|picking|choose|choosing|team|quest|nominate|nominating|going|go with|swap|replace|instead)\\b/i.test(transcript);
+    const intent=/\b(send|sending|take|taking|pick|picking|choose|choosing|team|quest|nominate|nominating|going|go with|swap|replace|instead)\b/i.test(transcript);
     if(!intent)return;
     if(mentioned.length===required){
       const ids=mentioned.map(p=>p.id);
